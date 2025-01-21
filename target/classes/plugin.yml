@@ -1,0 +1,9 @@
+name: cmap-paper
+version: '1.0'
+main: net.yuanmiranda.cmapPaper.CmapPaper
+api-version: '1.21'
+commands:
+  cmap:
+    description: Command to log player's coordinates
+    aliases: [cm]
+    usage: /cmap <<<add | remove> <player> | <list | start | stop | reload>> | dbconfig <host> <port> <name> <user> <password>
