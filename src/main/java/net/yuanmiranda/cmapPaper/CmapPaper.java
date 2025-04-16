@@ -15,10 +15,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public final class CmapPaper extends JavaPlugin {
     private String dbHost;
@@ -29,7 +26,6 @@ public final class CmapPaper extends JavaPlugin {
     private File databaseConfigFile;
     private Connection connection;
     private CommandSender globalSender;
-    private Set<String> trackedPlayers;
     private Map<String, Coordinates> lastKnownPlayerCoordinates;
     private BukkitRunnable logTask;
     private BukkitRunnable sendTask;
@@ -48,7 +44,6 @@ public final class CmapPaper extends JavaPlugin {
     @Override
     public void onDisable() {
         disconnectDb();
-        saveTrackedPlayers();
         stopLogging();
 
         if (logTask != null) logTask.cancel();
@@ -62,59 +57,25 @@ public final class CmapPaper extends JavaPlugin {
         e.printStackTrace();
     }
 
+    private void logInfo(String infoMsg) {
+        getLogger().info(infoMsg);
+        if (globalSender != null) globalSender.sendMessage(infoMsg);
+    }
+
     private void initializeData() {
-        File dataFolder = getDataFolder();
-        if (!dataFolder.exists()) {
-            if (!dataFolder.mkdirs()) {
-                getLogger().warning("Failed to create data folder.");
-                return;
-            }
-        }
-        loadDbConfig();
-        loadTrackedPlayers();
-    }
-
-    /**
-     * Saves the list of tracked players to the "trackedPlayers.txt" file.
-     *
-     * <p>This method overwrites the file with the current list of tracked players.
-     * Each player's name is written to a new line in the file.</p>
-     *
-     * <p>Logs the number of players saved, or an error message if an exception occurs.</p>
-     */
-    private void saveTrackedPlayers() {
-        File file = new File(getDataFolder(), "trackedPlayers.txt");
-        try (PrintWriter writer = new PrintWriter(new FileWriter(file, false))) {
-            for (String player : trackedPlayers) {
-                writer.println(player);
-            }
-            getLogger().info(String.format("Saved tracked players to %s", file.getName()));
-        } catch (Exception e) {
-            logError(String.format("Error writing file: %s", file.getName()), e);
-        }
-    }
-
-    private void loadTrackedPlayers() {
-        trackedPlayers = new HashSet<>();
         lastKnownPlayerCoordinates = new HashMap<>();
-
         bufferedOverworldCoordinates = new StringBuilder();
         bufferedNetherCoordinates = new StringBuilder();
         bufferedEndCoordinates = new StringBuilder();
 
-        File trackedPlayersFile = new File(getDataFolder(), "trackedPlayers.txt");
-        try {
-            if (!trackedPlayersFile.exists()) trackedPlayersFile.createNewFile();
-
-            BufferedReader reader = new BufferedReader(new FileReader(trackedPlayersFile));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                trackedPlayers.add(line.trim());
+        File dataFolder = getDataFolder();
+        if (!dataFolder.exists()) {
+            if (!dataFolder.mkdirs()) {
+                logInfo("Failed to create data folder.");
+                return;
             }
-            getLogger().info(String.format("Tracked players:\n%s", String.join("\n", trackedPlayers)));
-        } catch (Exception e) {
-            logError(String.format("Error reading file: %s", trackedPlayersFile.getName()), e);
         }
+        loadDbConfig();
     }
 
     /**
@@ -142,7 +103,7 @@ public final class CmapPaper extends JavaPlugin {
             databaseConfig.put("DB_USER", dbUser);
             databaseConfig.put("DB_PASSWORD", dbPassword);
             mapper.writeValue(databaseConfigFile, databaseConfig);
-            getLogger().info(String.format("Saved database configuration to %s", databaseConfigFile.getName()));
+            logInfo(String.format("Database configuration saved to %s", databaseConfigFile.getName()));
         } catch (Exception e) {
             logError("Error saving database configuration.", e);
         }
@@ -175,7 +136,7 @@ public final class CmapPaper extends JavaPlugin {
                 dbName = "";
                 dbUser = "";
                 dbPassword = "";
-                getLogger().info("Database configuration file not found. Use /cmap dbconfig <host> <port> <name> <user> <password> to set the database configuration.");
+                logInfo("Database configuration file not found. Use /cmap dbconfig <host> <port> <name> <user> <password> to set the database configuration.");
                 return;
             }
             ObjectMapper mapper = new ObjectMapper();
@@ -186,7 +147,7 @@ public final class CmapPaper extends JavaPlugin {
             dbName = (String) databaseConfig.get("DB_NAME");
             dbUser = (String) databaseConfig.get("DB_USER");
             dbPassword = (String) databaseConfig.get("DB_PASSWORD");
-            getLogger().info(String.format("Loaded database configuration from %s", databaseConfigFile.getName()));
+            logInfo(String.format("Loaded database configuration from %s", databaseConfigFile.getName()));
         } catch (Exception e) {
             logError("Error loading database configuration.", e);
         }
@@ -209,7 +170,7 @@ public final class CmapPaper extends JavaPlugin {
             Class.forName("org.postgresql.Driver");
             String url = String.format("jdbc:postgresql://%s:%d/%s", dbHost, dbPort, dbName);
             connection = DriverManager.getConnection(url, dbUser, dbPassword);
-            getLogger().info("Connected to the database.");
+            logInfo("Connected to the database.");
         } catch (Exception e) {
             logError("Error connecting to the database.", e);
             return;
@@ -226,34 +187,16 @@ public final class CmapPaper extends JavaPlugin {
             }
         };
         keepAliveTask.runTaskTimer(this, 0, 20 * 60);
-        getLogger().info("Started keep-alive connection to the database.");
+        logInfo("Started keep-alive connection to the database.");
     }
 
     private void disconnectDb() {
         try {
             if (connection != null && !connection.isClosed()) connection.close();
-            getLogger().info("Disconnected from the database.");
+            logInfo("Disconnected from the database.");
         } catch (Exception e) {
             logError("Error disconnecting from the database.", e);
         }
-    }
-
-    private void addPlayer(String player) {
-        if (trackedPlayers.add(player)) {
-            getLogger().info(String.format("Added %s to tracked players.", player));
-            lastKnownPlayerCoordinates.put(player, new Coordinates(0, 0, ""));
-        }
-    }
-
-    private void removePlayer(String player) {
-        if (trackedPlayers.remove(player)) {
-            getLogger().info(String.format("Removed %s from tracked players.", player));
-            lastKnownPlayerCoordinates.remove(player);
-        }
-    }
-
-    private boolean isPlayerOnline(String playerName) {
-        return Bukkit.getPlayer(playerName) != null;
     }
 
     /**
@@ -284,7 +227,7 @@ public final class CmapPaper extends JavaPlugin {
         };
 
         logTask.runTaskTimer(this, 0, 1);
-        getLogger().info("Started logging player coordinates.");
+        logInfo("Started logging player coordinates.");
     }
 
     private void startSendTask() {
@@ -313,7 +256,7 @@ public final class CmapPaper extends JavaPlugin {
 
         // 20 ticks = 1 second
         sendTask.runTaskTimer(this, 0, 20 * 2);
-        getLogger().info("Started sending player coordinates to the database.");
+        logInfo("Started sending player coordinates to the database.");
     }
 
     /**
@@ -330,11 +273,11 @@ public final class CmapPaper extends JavaPlugin {
     private void stopLogging() {
         if (logTask != null) {
             logTask.cancel();
-            getLogger().info("Stopped logging player coordinates.");
+            logInfo("Stopped logging player coordinates.");
         }
         if (sendTask != null) {
             sendTask.cancel();
-            getLogger().info("Stopped sending player coordinates to the database.");
+            logInfo("Stopped sending player coordinates to the database.");
         }
     }
 
@@ -356,42 +299,35 @@ public final class CmapPaper extends JavaPlugin {
      * <p>It also handles exceptions during the tracking process and logs any errors encountered.</p>
      */
     private void trackPlayerCoordinates() {
-        // early return if there are no tracked players to avoid unnecessary computation
-        if (trackedPlayers.isEmpty()) return;
+        Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
+        if (onlinePlayers.isEmpty()) return;
 
         StringBuilder overworldCoordinates = new StringBuilder();
         StringBuilder netherCoordinates = new StringBuilder();
         StringBuilder endCoordinates = new StringBuilder();
 
-        for (String playerName : trackedPlayers) {
+        for (Player player : onlinePlayers) {
             try {
-                // check if the player is online
-                if (!isPlayerOnline(playerName)) continue;
-                Player player = Bukkit.getPlayer(playerName);
-                if (player == null) continue;
-
-                // get player's location
+                String playerName = player.getName();
                 int x = (int) player.getLocation().getX();
                 int z = (int) player.getLocation().getZ();
                 String dimension = player.getWorld().getName();
-                Coordinates lastCoordinates = lastKnownPlayerCoordinates.get(playerName);
+                Coordinates lastCoordinates = lastKnownPlayerCoordinates.get(player.getName());
 
-                // check if the player has moved
                 if (lastCoordinates == null || x != lastCoordinates.x || z != lastCoordinates.z) {
-                    lastKnownPlayerCoordinates.put(playerName, new Coordinates(x, z, dimension));
+                    lastKnownPlayerCoordinates.put(player.getName(), new Coordinates(x, z, dimension));
 
-                    // get the dimension name
                     if (dimension.contains("nether")) dimension = "nether";
                     else if (dimension.contains("end")) dimension = "the_end";
                     else dimension = "overworld";
 
-                    // append coordinates to the corresponding dimension
-                    if (dimension.equals("nether")) netherCoordinates.append(x).append(", ").append(z).append("\n");
-                    else if (dimension.equals("the_end")) endCoordinates.append(x).append(", ").append(z).append("\n");
-                    else overworldCoordinates.append(x).append(", ").append(z).append("\n");
+                    // append the coordinates to the temporary string builder
+                    if (dimension.equals("nether")) netherCoordinates.append(playerName).append(", ").append(x).append(", ").append(z).append("\n");
+                    else if (dimension.equals("the_end")) endCoordinates.append(playerName).append(", ").append(x).append(", ").append(z).append("\n");
+                    else overworldCoordinates.append(playerName).append(", ").append(x).append(", ").append(z).append("\n");
                 }
             } catch (Exception e) {
-                logError(String.format("Error tracking coordinates for player %s", playerName), e);
+                logError(String.format("Error tracking coordinates for player %s", player.getName()), e);
             }
         }
 
@@ -449,16 +385,17 @@ public final class CmapPaper extends JavaPlugin {
     private void insertCoordinatesToDatabase(String dimension, StringBuilder bufferedCoordinates) throws SQLException {
         // PostgreSQL database schema
         // tables: overworld, nether, end
-        // columns: id=serial, x=int, z=int
-        String query = "INSERT INTO " + dimension + " (x, z) VALUES ";
+        // columns: id=serial, player_name=text, x=int, z=int
+        String query = "INSERT INTO " + dimension + " (player_name, x, z) VALUES ";
         StringBuilder values = new StringBuilder();
 
         String[] coordinates = bufferedCoordinates.toString().split("\n");
         for (String coordinate : coordinates) {
             String[] parts = coordinate.split(", ");
-            int x = Integer.parseInt(parts[0]);
-            int z = Integer.parseInt(parts[1]);
-            values.append("(").append(x).append(", ").append(z).append("), ");
+            String playerName = parts[0];
+            int x = Integer.parseInt(parts[1]);
+            int z = Integer.parseInt(parts[2]);
+            values.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append("), ");
         }
 
         // remove the last comma and space
@@ -474,55 +411,25 @@ public final class CmapPaper extends JavaPlugin {
         if (command.getName().equalsIgnoreCase("cmap")) {
             int argsLength = args.length;
             if (argsLength < 1) {
-                sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap add <player=sender>\n\t/cmap remove <player=sender>\n\t/cmap list\n\t/cmap start\n\t/cmap stop\n\t/cmap reload\n\t/cmap dbconfig <host> <port> <name> <user> <password>");
+                sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap list\n/cmap start\n/cmap stop\n/cmap reload\n/cmap dbconfig <host> <port> <name> <user> <password>");
                 return true;
             }
             String subCommand = args[0];
-            String player;
             switch (subCommand) {
-                case "add":
-                    if (argsLength > 2) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap add <player>");
-                        return true;
-                    }
-                    if (argsLength == 1) {
-                        if (!(sender instanceof Player)) {
-                            sender.sendMessage("Sender is not a player.\nUsage:\n\t/cmap add <player>");
-                            return true;
-                        }
-                        player = sender.getName();
-                    } else player = args[1];
-
-                    if (isPlayerOnline(player)) {
-                        addPlayer(player);
-                        sender.sendMessage(String.format("Added %s to tracked players.", player));
-                    } else sender.sendMessage(String.format("Player %s not found.", player));
-                    break;
-                case "remove":
-                    if (argsLength > 2) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap remove <player>");
-                        return true;
-                    }
-                    if (argsLength == 1) {
-                        if (!(sender instanceof Player)) {
-                            sender.sendMessage("Sender is not a player.\nUsage:\n\t/cmap remove <player>");
-                            return true;
-                        }
-                        player = sender.getName();
-                    } else player = args[1];
-
-                    if (isPlayerOnline(player)) {
-                        removePlayer(player);
-                        sender.sendMessage(String.format("Removed %s from tracked players.", player));
-                    } else sender.sendMessage(String.format("Player %s not found.", player));
-                    break;
                 case "list":
                     if (argsLength > 1) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap list");
+                        sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap list");
                         return true;
                     }
-                    String players = trackedPlayers.isEmpty() ? "No tracked players." : String.format("Tracked players:\n%s", String.join("\n", trackedPlayers));
-                    sender.sendMessage(players);
+                    if (Bukkit.getOnlinePlayers().isEmpty()) {
+                        sender.sendMessage("No online players to track.");
+                        return true;
+                    }
+                    StringBuilder onlinePlayers = new StringBuilder();
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        onlinePlayers.append(player.getName()).append("\n");
+                    }
+                    sender.sendMessage(String.format("Tracked players:\n%s", onlinePlayers));
                     break;
                 case "start":
                     if (connection == null) {
@@ -531,11 +438,11 @@ public final class CmapPaper extends JavaPlugin {
                         return true;
                     }
                     if (argsLength > 1) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap start");
+                        sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap start");
                         return true;
                     }
-                    if (trackedPlayers.isEmpty()) {
-                        sender.sendMessage("No tracked players.");
+                    if (Bukkit.getOnlinePlayers().isEmpty()) {
+                        sender.sendMessage("No online players to track.");
                         return true;
                     }
                     if (logTask != null && !logTask.isCancelled()) {
@@ -547,7 +454,7 @@ public final class CmapPaper extends JavaPlugin {
                     break;
                 case "stop":
                     if (argsLength > 1) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap stop");
+                        sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap stop");
                         return true;
                     }
                     if (logTask == null || logTask.isCancelled()) {
@@ -559,7 +466,7 @@ public final class CmapPaper extends JavaPlugin {
                     break;
                 case "dbconfig":
                     if (argsLength < 6) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap dbconfig <host> <port> <name> <user> <password>");
+                        sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap dbconfig <host> <port> <name> <user> <password>");
                         return true;
                     }
 
@@ -580,7 +487,7 @@ public final class CmapPaper extends JavaPlugin {
                     break;
                 case "reload":
                     if (argsLength > 1) {
-                        sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap reload");
+                        sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap reload");
                         return true;
                     }
                     onDisable();
@@ -588,7 +495,7 @@ public final class CmapPaper extends JavaPlugin {
                     sender.sendMessage("Reloaded CmapPaper.");
                     break;
                 default:
-                    sender.sendMessage("Invalid subcommand.\nUsage:\n\t/cmap add <player=sender>\n\t/cmap remove <player=sender>\n\t/cmap list\n\t/cmap start\n\t/cmap stop\n\t/cmap reload\n\t/cmap dbconfig <host> <port> <name> <user> <password>");
+                    sender.sendMessage("Invalid subcommand.\nUsage:\n/cmap list\n/cmap start\n/cmap stop\n/cmap reload\n/cmap dbconfig <host> <port> <name> <user> <password>");
                     break;
             }
             return true;
