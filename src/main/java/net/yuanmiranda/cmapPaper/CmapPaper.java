@@ -390,22 +390,38 @@ public final class CmapPaper extends JavaPlugin {
         String conflictClause = "ON CONFLICT (player_name) DO UPDATE SET x = EXCLUDED.x, z = EXCLUDED.z, dimension = EXCLUDED.dimension;";
         StringBuilder locationValues = new StringBuilder();
 
+        Map<String, String> latestCoordinates = new HashMap<>();
         String[] coordinates = bufferedCoordinates.toString().split("\n");
+
+        for (String coordinate : coordinates) {
+            String [] parts = coordinate.split(", ");
+            String playerName = parts[0];
+            latestCoordinates.put(playerName, coordinate);
+        }
+        for (String coordinate : latestCoordinates.values()) {
+            String[] parts = coordinate.split(", ");
+            String playerName = parts[0];
+            int x = Integer.parseInt(parts[1]);
+            int z = Integer.parseInt(parts[2]);
+            locationValues.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append(", '").append(dimension).append("'), ");
+        }
+
         for (String coordinate : coordinates) {
             String[] parts = coordinate.split(", ");
             String playerName = parts[0];
             int x = Integer.parseInt(parts[1]);
             int z = Integer.parseInt(parts[2]);
             coordinatesValues.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append("), ");
-            locationValues.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append(", '").append(dimension).append("'), ");
         }
 
         // remove the last comma and space
         coordinatesValues.setLength(coordinatesValues.length() - 2);
         locationValues.setLength(locationValues.length() - 2);
 
-        try (PreparedStatement corStatement = connection.prepareStatement(coordinatesQuery + coordinatesValues);
-             PreparedStatement locStatement = connection.prepareStatement(locationQuery + locationValues + conflictClause)) {
+        try (
+                PreparedStatement corStatement = connection.prepareStatement(coordinatesQuery + coordinatesValues);
+                PreparedStatement locStatement = connection.prepareStatement(locationQuery + locationValues + conflictClause)
+        ) {
             corStatement.executeUpdate();
             locStatement.executeUpdate();
         }
