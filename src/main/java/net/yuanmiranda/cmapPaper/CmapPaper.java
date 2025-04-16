@@ -383,11 +383,12 @@ public final class CmapPaper extends JavaPlugin {
      * @throws SQLException If an error occurs while executing the SQL query.
      */
     private void insertCoordinatesToDatabase(String dimension, StringBuilder bufferedCoordinates) throws SQLException {
-        // PostgreSQL database schema
-        // tables: overworld, nether, end
-        // columns: id=serial, player_name=text, x=int, z=int
-        String query = "INSERT INTO " + dimension + " (player_name, x, z) VALUES ";
-        StringBuilder values = new StringBuilder();
+        String coordinatesQuery = "INSERT INTO " + dimension + " (player_name, x, z) VALUES ";
+        StringBuilder coordinatesValues = new StringBuilder();
+
+        String locationQuery = "INSERT INTO location (player_name, x, z, dimension) VALUES ";
+        String conflictClause = "ON CONFLICT (player_name) DO UPDATE SET x = EXCLUDED.x, z = EXCLUDED.z, dimension = EXCLUDED.dimension;";
+        StringBuilder locationValues = new StringBuilder();
 
         String[] coordinates = bufferedCoordinates.toString().split("\n");
         for (String coordinate : coordinates) {
@@ -395,14 +396,18 @@ public final class CmapPaper extends JavaPlugin {
             String playerName = parts[0];
             int x = Integer.parseInt(parts[1]);
             int z = Integer.parseInt(parts[2]);
-            values.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append("), ");
+            coordinatesValues.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append("), ");
+            locationValues.append("('").append(playerName).append("', ").append(x).append(", ").append(z).append(", '").append(dimension).append("'), ");
         }
 
         // remove the last comma and space
-        values.setLength(values.length() - 2);
+        coordinatesValues.setLength(coordinatesValues.length() - 2);
+        locationValues.setLength(locationValues.length() - 2);
 
-        try (PreparedStatement statement = connection.prepareStatement(query + values)) {
-            statement.executeUpdate();
+        try (PreparedStatement corStatement = connection.prepareStatement(coordinatesQuery + coordinatesValues);
+             PreparedStatement locStatement = connection.prepareStatement(locationQuery + locationValues + conflictClause)) {
+            corStatement.executeUpdate();
+            locStatement.executeUpdate();
         }
     }
 
